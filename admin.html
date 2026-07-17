@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Administration — JOMA IMPACT ACADEMY</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+    .admin-wrap { max-width: 1100px; margin: 40px auto; padding: 0 20px; }
+    table { width: 100%; border-collapse: collapse; background: var(--card-bg); border-radius: 12px; overflow: hidden; }
+    th, td { padding: 14px 16px; text-align: left; font-size: 0.88rem; border-bottom: 1px solid var(--border-color); }
+    th { background: var(--card-bg-alt); color: var(--light-blue); text-transform: uppercase; font-size: 0.75rem; letter-spacing: .5px; }
+    .pw-warning { background: rgba(239,68,68,.12); border: 1px solid var(--danger); color: #fca5a5; padding: 14px 18px; border-radius: 10px; margin-bottom: 24px; font-size: 0.88rem; }
+    .login-gate { max-width: 380px; margin: 90px auto; background: var(--card-bg); padding: 30px; border-radius: 16px; border: 1px solid var(--border-color); text-align: center; }
+    .login-gate input { width: 100%; padding: 10px; margin: 14px 0; border-radius: 8px; border: 1px solid var(--border-color); background: var(--card-bg-alt); color: var(--text-light); }
+    .empty-state { text-align: center; padding: 40px; color: var(--text-gray); }
+</style>
+</head>
+<body>
+
+<nav class="navbar">
+    <div class="navbar-inner">
+        <div class="logo"><div class="logo-badge">JIA</div><span>Administration</span></div>
+        <a href="index.html" class="nav-link">← Retour au site</a>
+    </div>
+</nav>
+
+<!-- Portail d'accès très simple : à remplacer par une vraie authentification admin
+     côté serveur avant toute mise en production. -->
+<div id="login-gate" class="login-gate">
+    <h3>Accès administrateur</h3>
+    <p class="small-note" style="color:var(--text-gray);margin-top:8px;">Code d'accès requis</p>
+    <input type="password" id="admin-code" placeholder="Code d'accès">
+    <button class="btn btn-primary btn-block" onclick="checkAdminCode()">Entrer</button>
+    <p class="form-error" id="admin-error" style="display:none;">Code incorrect.</p>
+</div>
+
+<div class="admin-wrap hidden" id="admin-content">
+    <div class="pw-warning">
+        ⚠️ Ce panneau lit les données stockées localement dans <strong>ce navigateur</strong> (localStorage).
+        Il ne remplace pas un vrai back-office relié à une base de données partagée : dans cette version
+        prototype, un étudiant qui s'inscrit sur un autre appareil n'apparaîtra pas ici. C'est volontaire,
+        le temps de valider le produit avant de brancher un backend réel.
+    </div>
+
+    <h2 class="section-title" style="text-align:left;">Demandes de certificats</h2>
+    <p class="section-subtitle" style="text-align:left;">Validez les paiements Moov Money reçus.</p>
+    <div id="requests-table"></div>
+
+    <h2 class="section-title" style="text-align:left;margin-top:50px;">Étudiants inscrits</h2>
+    <div id="students-table"></div>
+</div>
+
+<script src="app.js"></script>
+<script>
+// Code d'accès très simple pour le prototype — à remplacer par une vraie
+// authentification (rôle admin vérifié côté serveur) avant mise en ligne.
+const ADMIN_CODE = "JOMA-ADMIN-2026";
+
+function checkAdminCode() {
+    const val = document.getElementById("admin-code").value;
+    if (val === ADMIN_CODE) {
+        document.getElementById("login-gate").classList.add("hidden");
+        document.getElementById("admin-content").classList.remove("hidden");
+        renderAdmin();
+    } else {
+        document.getElementById("admin-error").style.display = "block";
+    }
+}
+
+function renderAdmin() {
+    const users = loadUsers();
+
+    // Demandes de certificats (en attente + validées)
+    const requests = [];
+    users.forEach(u => {
+        Object.entries(u.progress || {}).forEach(([domainId, prog]) => {
+            if (prog.certificate && prog.certificate.status !== "none") {
+                requests.push({ user: u, domainId, cert: prog.certificate });
+            }
+        });
+    });
+
+    const reqTable = document.getElementById("requests-table");
+    if (requests.length === 0) {
+        reqTable.innerHTML = `<div class="empty-state">Aucune demande de certificat pour le moment.</div>`;
+    } else {
+        reqTable.innerHTML = `<table><thead><tr>
+            <th>Étudiant</th><th>Email</th><th>Formation</th><th>Preuve</th><th>N° Certificat</th><th>Statut</th><th>Action</th>
+        </tr></thead><tbody>
+            ${requests.map(r => `<tr>
+                <td>${escapeHtml(r.user.name)}</td>
+                <td>${escapeHtml(r.user.email)}</td>
+                <td>${escapeHtml((DOMAINS[r.domainId] || {}).title || r.domainId)}</td>
+                <td>${escapeHtml(r.cert.proofFileName || "—")}</td>
+                <td>${escapeHtml(r.cert.uniqueId || "—")}</td>
+                <td>${r.cert.status === "approved" ? "✅ Validé" : "⏳ En attente"}</td>
+                <td>${r.cert.status === "pending"
+                    ? `<button class="btn btn-success" onclick="approveCertificate('${r.user.email}','${r.domainId}')">Valider</button>`
+                    : "—"}</td>
+            </tr>`).join("")}
+        </tbody></table>`;
+    }
+
+    // Liste des étudiants
+    const stuTable = document.getElementById("students-table");
+    if (users.length === 0) {
+        stuTable.innerHTML = `<div class="empty-state">Aucun étudiant inscrit pour le moment.</div>`;
+    } else {
+        stuTable.innerHTML = `<table><thead><tr>
+            <th>Nom</th><th>Email</th><th>JOMA Coins</th><th>Formations démarrées</th><th>Certificats validés</th>
+        </tr></thead><tbody>
+            ${users.map(u => {
+                const started = Object.keys(u.progress || {}).length;
+                const approved = Object.values(u.progress || {}).filter(p => p.certificate && p.certificate.status === "approved").length;
+                return `<tr>
+                    <td>${escapeHtml(u.name)}</td>
+                    <td>${escapeHtml(u.email)}</td>
+                    <td>${u.coins || 0}</td>
+                    <td>${started}</td>
+                    <td>${approved}</td>
+                </tr>`;
+            }).join("")}
+        </tbody></table>`;
+    }
+}
+
+function approveCertificate(email, domainId) {
+    updateUser(email, (u) => {
+        if (u.progress && u.progress[domainId] && u.progress[domainId].certificate) {
+            u.progress[domainId].certificate.status = "approved";
+        }
+    });
+    renderAdmin();
+}
+</script>
+</body>
+</html>
